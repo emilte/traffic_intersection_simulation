@@ -1,0 +1,155 @@
+! Backbone;
+begin
+    external class demos = "C:/cim/classes/demos.atr";
+    external class demos = "/home/pederbg/studier/h18/pyse/demos.atr";
+    demos begin
+
+        ! Define global variables;
+        integer S, V, T, M, Nr, i, SIMULATION_TIME;
+        real E_INTENSITY, N_INTENSITY;
+		ref(Res) ARRAY grid(-6:6 , -5:5);
+        ref(rdist) poisson1, poisson2;
+        ref(Tally) journey_e, journey_n;
+        ref(Count) cars_count_e, cars_finished_e, cars_count_n, cars_finished_n;
+        ! End: Global variables -------------------------------------------;
+
+        ! Definition of Entities;
+        entity class Car(dx, dy); integer dx, dy; ! dx xor dy;
+        begin
+            ! Define local variables;
+            integer x, y, n;
+            real start_time, speed;
+
+            ! Remember start time;
+            start_time := time;
+
+        	! Initialize coordinates;
+            x := -6 * dx;
+            y := -5 * dy;
+
+            ! Enter first segment;
+            grid(x, y).acquire(1);
+
+            loop:
+                ! Calculate speed in current segment;
+                if x = 0 and y = 0 then
+                        n := M/2 - grid(x, y).avail
+                    else
+                        n := M - grid(x, y).avail;
+
+                speed := V / n;
+
+                ! Drive across segment;
+                hold(S / speed);
+
+                ! If car has reached the end;
+                if x = 6 or y = 5 then
+                    begin ! True;
+                    	grid(x, y).release(1);
+                        ! Update statistics because car now leaves the system;
+                        if x = 6 then begin
+                            cars_finished_e.update(1);
+                            journey_e.update(time - start_time);
+                        end;
+                        if y = 5 then begin
+                            cars_finished_n.update(1);
+                            journey_n.update(time - start_time);
+                        end;
+                    end
+                else begin ! False;
+                    ! Inc index;
+                    x := x + dx;
+                    y := y + dy;
+                    ! Wait until next segment is available before releasing old;
+                    grid(x, y).acquire(1);
+                	grid(x-dx, y-dy).release(1);
+                    repeat;
+                end;
+        end***Car***;
+
+        ! Generate cars east;
+		Entity class GeneratorEast;
+		begin
+            integer e;
+            e := 0;
+        	loop:
+				new Car(edit("CarEast", e), 1, 0).schedule(now);
+                cars_count_e.update(1);
+                hold(poisson1.sample);
+                e := e + 1;
+            repeat;
+		end***GeneratorEast***;
+
+        ! Generate cars north;
+		Entity class GeneratorNorth;
+        begin
+            integer e;
+            e := 0;
+            loop:
+            	new Car(edit("CarNorth", e), 0, 1).schedule(now);
+                cars_count_n.update(1);
+                hold(poisson2.sample);
+                e := e + 1;
+            repeat;
+        end***GeneratorNorth***;
+
+        ! End: Entities --------------------------------------------------------------------------
+
+        ! Variable values;
+        S := 60;
+        V := 15;
+        T := 2;
+        M := 10; ! 10 - 13 - 7;
+        Nr := 20;
+        E_INTENSITY := 0.075; ! 0.075 - 0.090 - 0.060 - 0.130;
+        N_INTENSITY := 0.070; ! 0.070 - 0.084 - 0.056 - 0.120;
+        SIMULATION_TIME := 100000;
+        poisson1 :- new NegExp("poisson1", E_INTENSITY);
+        poisson2 :- new NegExp("poisson2", N_INTENSITY);
+        journey_e :- new tally("journey_e");
+        journey_n :- new tally("journey_n");
+        cars_count_e :- new Count("cars_e");
+        cars_finished_e :- new Count("cars_e_fin");
+        cars_count_n :- new Count("cars_n");
+        cars_finished_n :- new Count("cars_n_fin");
+
+        ! Make grid;
+        for i := -6 step 1 until 6 do
+            if i <> 0 then
+                begin
+                if i < 0 then
+                    grid(i, 0) :- new Res(edit("east -", i), M)
+                else
+                    grid(i, 0) :- new Res(edit("east ", i), M)
+                end;
+
+		for i := -5 step 1 until 5 do
+            if i <> 0 then
+                begin
+                if i < 0 then
+                    grid(0, i) :- new Res(edit("north -", i), M)
+                else
+                    grid(0, i) :- new Res(edit("north ", i), M)
+                end;
+
+        grid(0, 0) :- new Res("Intersection", M/2);
+        ! End: Make grid
+
+        ! End: Variable values ------------------------------------------------;
+
+        ! Simulation (Nr times);
+        while replication LE Nr do
+            begin
+                ! Schedule entities needed;
+                new GeneratorEast("g1").schedule(0);
+                new GeneratorNorth("g2").schedule(0);
+
+                hold(SIMULATION_TIME);
+                if replication > 1 then noreport;
+                replicate;
+            end;
+        if Nr < 3 then norepli;
+        ! End: Simulation -----------------------------------------------------;
+
+    end***demos***;
+end;
